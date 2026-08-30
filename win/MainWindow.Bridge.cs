@@ -65,6 +65,7 @@ public partial class MainWindow : IBridgeHost
 
         // 只用已保存的密码/私钥；桥不弹密码框（无人值守场景不该阻塞）。
         var pw = CredentialStore.GetPassword(h.Id) ?? "";
+        var keyPassphrase = CredentialStore.GetKeyPassphrase(h.Id);
         if (string.IsNullOrEmpty(pw) && string.IsNullOrEmpty(h.KeyPath))
             throw new Exception("该主机没有保存的密码或私钥，请先在界面里连接一次");
         if (h.IsRdp || h.IsLocal)
@@ -89,7 +90,7 @@ public partial class MainWindow : IBridgeHost
             };
         }
 
-        await OpenSessionTab(connectHost, pw);
+        await OpenSessionTab(connectHost, pw, keyPassphrase);
         var session = Sessions.Items.OfType<TabItem>()
             .Select(item => item.Tag as TerminalSession)
             .LastOrDefault(s => s != null && ReferenceEquals(s.SourceHost, connectHost));

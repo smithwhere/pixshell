@@ -472,6 +472,7 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() != true) return;
         _hosts.Add(dlg.Entry);
         if (dlg.Password != null) CredentialStore.SetPassword(dlg.Entry.Id, dlg.Password);
+        if (dlg.KeyPassphrase != null) CredentialStore.SetKeyPassphrase(dlg.Entry.Id, dlg.KeyPassphrase);
         PersistHosts();
         RefreshHostViews();
     }
@@ -484,6 +485,7 @@ public partial class MainWindow : Window
         host.Username = dlg.Entry.Username; host.Group = dlg.Entry.Group; host.OsId = dlg.Entry.OsId;
         host.KeyPath = dlg.Entry.KeyPath; host.ProxyId = dlg.Entry.ProxyId;
         if (dlg.Password != null) CredentialStore.SetPassword(host.Id, dlg.Password);
+        if (dlg.KeyPassphrase != null) CredentialStore.SetKeyPassphrase(host.Id, dlg.KeyPassphrase);
         PersistHosts();
         RefreshHostViews();
     }
@@ -521,9 +523,10 @@ public partial class MainWindow : Window
         // Web 连接：和 SSH 同一入口，开应用内 Web 终端标签（host_id 自动连）。
         if (host.IsWebSsh) { _ = OpenWebHostSessionAsync(host); return; }
         var pass = CredentialStore.GetPassword(host.Id) ?? "";
+        var keyPassphrase = CredentialStore.GetKeyPassphrase(host.Id);
         RecentsStore.NoteRecent(host.Id);
         QuickConnectPanel.Reload();
-        _ = OpenSessionTab(host, pass);
+        _ = OpenSessionTab(host, pass, keyPassphrase);
     }
 
     /// <summary>主机配置了 KeyPath 且文件真实存在（展开 ~ / 环境变量后）。</summary>
@@ -644,7 +647,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task OpenSessionTab(HostEntry host, string pass)
+    private async Task OpenSessionTab(HostEntry host, string pass, string? keyPassphrase = null)
     {
         if (host.IsLocal) { await OpenLocalTerminalSession(host); return; }
         Log.Info($"打开会话 {host.Username}@{host.Host}:{host.Port}", "session");
@@ -683,7 +686,7 @@ public partial class MainWindow : Window
         {
             session.ApplyTermScheme(Terminal.TermSchemeStore.Current);
             var proxy = ProxyStore.Find(host.ProxyId);
-            await session.ConnectAsync(host.Host, host.Port, host.Username, pass, host.KeyPath, proxy);
+            await session.ConnectAsync(host.Host, host.Port, host.Username, pass, host.KeyPath, proxy, keyPassphrase);
             SyncDockSession();
             Monitor.SetConnected(true, host.Host);
             ConnectAnim.Succeed();
@@ -820,7 +823,8 @@ public partial class MainWindow : Window
 
                 session.Disconnect();
                 var proxy = ProxyStore.Find(host.ProxyId);
-                await session.ConnectAsync(host.Host, host.Port, host.Username, entered, host.KeyPath, proxy);
+                var kp = session.KeyPassphrase ?? CredentialStore.GetKeyPassphrase(host.Id);
+                await session.ConnectAsync(host.Host, host.Port, host.Username, entered, host.KeyPath, proxy, kp);
                 if (!IsSessionTabAlive(item, session))
                 {
                     session.Disconnect();
@@ -953,7 +957,8 @@ public partial class MainWindow : Window
             session.Disconnect();
             ConnectAnim.Begin($"{host.Username}@{host.Host}:{host.Port}");
             var proxy = ProxyStore.Find(host.ProxyId);
-            await session.ConnectAsync(host.Host, host.Port, host.Username, pass ?? "", host.KeyPath, proxy);
+            var kp = session.KeyPassphrase ?? CredentialStore.GetKeyPassphrase(host.Id);
+            await session.ConnectAsync(host.Host, host.Port, host.Username, pass ?? "", host.KeyPath, proxy, kp);
             LeaveQuickConnect(); // SSH 重连成功：先收 QC 再亮 HWND
             SyncDockSession();
             Monitor.SetConnected(true, host.Host);
@@ -976,7 +981,8 @@ public partial class MainWindow : Window
         // Web 主机：再走一遍 ConnectToHost（和 SSH 同路径），不要退回菜单硬开空标签
         if (host.IsWebSsh || session.IsWebSsh) { ConnectToHost(host); return; }
         var pass = session.Password;
-        if (!string.IsNullOrEmpty(pass)) _ = OpenSessionTab(host, pass); else ConnectToHost(host);
+        var kp = session.KeyPassphrase ?? CredentialStore.GetKeyPassphrase(host.Id);
+        if (!string.IsNullOrEmpty(pass)) _ = OpenSessionTab(host, pass, kp); else ConnectToHost(host);
     }
 
     private void TabMenuCloseOthers(TabItem keep)

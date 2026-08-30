@@ -327,10 +327,52 @@ public static class CredentialStore
         }
     }
 
+    // 私钥口令使用独立 key：hostId + ":keyphr"，避免与服务器密码混淆。
+    private static string KeyPassphraseKey(string hostId) => hostId + ":keyphr";
+
+    /// <summary>保存/更新某主机私钥口令（DPAPI 加密，与服务器登录密码独立存储）。空值表示清除。</summary>
+    public static void SetKeyPassphrase(string hostId, string? passphrase)
+    {
+        var map = LoadMap();
+        var key = KeyPassphraseKey(hostId);
+        if (string.IsNullOrEmpty(passphrase))
+        {
+            map.Remove(key);
+        }
+        else
+        {
+            var cipher = ProtectedData.Protect(
+                Encoding.UTF8.GetBytes(passphrase), Entropy, DataProtectionScope.CurrentUser);
+            map[key] = Convert.ToBase64String(cipher);
+        }
+        SaveMap(map);
+    }
+
+    /// <summary>取回私钥口令明文；不存在或解密失败返回 null。</summary>
+    public static string? GetKeyPassphrase(string hostId)
+    {
+        var map = LoadMap();
+        var key = KeyPassphraseKey(hostId);
+        if (!map.TryGetValue(key, out var b64) || string.IsNullOrEmpty(b64))
+            return null;
+        try
+        {
+            var plain = ProtectedData.Unprotect(
+                Convert.FromBase64String(b64), Entropy, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(plain);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static void Remove(string hostId)
     {
         var map = LoadMap();
-        if (map.Remove(hostId)) SaveMap(map);
+        var removed = map.Remove(hostId);
+        removed |= map.Remove(KeyPassphraseKey(hostId));
+        if (removed) SaveMap(map);
     }
 }
 

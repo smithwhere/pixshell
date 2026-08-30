@@ -20,6 +20,9 @@ public partial class HostEditWindow : Window
     /// <summary>用户新填写的密码；为 null 表示未改动，保留原有 DPAPI 凭据。</summary>
     public string? Password { get; private set; }
 
+    /// <summary>用户新填写的私钥口令；为 null 表示未改动，保留原有 DPAPI 凭据。</summary>
+    public string? KeyPassphrase { get; private set; }
+
     public HostEditWindow(HostEntry? existing)
     {
         InitializeComponent();
@@ -218,6 +221,8 @@ public partial class HostEditWindow : Window
 
         // 密码框有内容才回传（空 = 不改动已存凭据）。
         Password = PassBox.Password.Length > 0 ? PassBox.Password : null;
+        // 私钥口令框有内容才回传（空 = 不改动已存口令）。
+        KeyPassphrase = KeyPassBox.Password.Length > 0 ? KeyPassBox.Password : null;
 
         DialogResult = true;
     }

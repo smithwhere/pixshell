@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixShell Terminal</title>
+<link rel="stylesheet" href="xterm.css" />
+<style>
+  /* 初始色对齐 TermSchemes 默认深色；真正配色由 C# theme 消息驱动，
+     同步回写 html/body，避免 xterm 视口与 WebView 外缘色差（半截黑屏）。 */
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #002945; }
+  #terminal-container { position: absolute; inset: 0; padding: 0; box-sizing: border-box; background: inherit; }
+  .xterm, .xterm-viewport, .xterm-screen { background-color: inherit !important; }
+  /* xterm 滚动条跟终端底色，禁止系统浅灰滑块在深色终端上发白/发黑。 */
+  .xterm-viewport::-webkit-scrollbar { width: 10px; height: 10px; }
+  .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  .xterm-viewport::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.22); border-radius: 5px;
+  }
+  .xterm-viewport::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
+  html.pix-light .xterm-viewport::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.25);
+  }
+  html.pix-light .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: rgba(0,0,0,0.40);
+  }
+</style>
+</head>
+<body>
+<div id="terminal-container"></div>
+
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+// PixShell 终端页面：真实终端，等待 C# 注入输出 + 回传用户输入 / 尺寸。
+// 收 (C#→JS): out / status / theme / fit
+// 发 (JS→C#): in / resize / ready / title
+const term = new Terminal({
+  cursorBlink: true,
+  cursorStyle: 'block',
+  fontSize: 14,
+  fontFamily: 'Consolas, "Courier New", monospace',
+  unicodeVersion: '11',   // CJK 全角按双宽对齐，避免 cat 中文长行逐字错位
+  scrollback: 5000,
+  theme: { background: '#002945', foreground: '#ffffff' }
+});
+
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById('terminal-container'));
+
+const bridge = (window.chrome && window.chrome.webview) ? window.chrome.webview : null;
+function post(obj) {
+  if (bridge) bridge.postMessage(JSON.stringify(obj));
+}
+
+function b64ToStr(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+function applyDomBackground(bg) {
+  if (!bg || typeof bg !== 'string') return;
+  document.documentElement.style.background = bg;
+  document.body.style.background = bg;
+  const box = document.getElementById('terminal-container');
+  if (box) box.style.background = bg;
+  // 粗判深浅，切换滚动条滑块对比度
+  try {
+    const hex = bg.replace('#','').trim();
+    let r,g,b;
+    if (hex.length === 3) {
+      r = parseInt(hex[0]+hex[0],16); g = parseInt(hex[1]+hex[1],16); b = parseInt(hex[2]+hex[2],16);
+    } else if (hex.length >= 6) {
+      r = parseInt(hex.slice(0,2),16); g = parseInt(hex.slice(2,4),16); b = parseInt(hex.slice(4,6),16);
+    }
+    if (r != null) {
+      const lum = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+      document.documentElement.classList.toggle('pix-light', lum > 0.55);
+    }
+  } catch {}
+}
+
+if (bridge) {
+  bridge.addEventListener('message', (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.t === 'out') {
+      term.write(b64ToStr(msg.d));
+    } else if (msg.t === 'status') {
+      term.write('\r\n\x1b[90m[pixshell] ' + msg.d + '\x1b[0m\r\n');
+    } else if (msg.t === 'theme' && msg.theme) {
+      try {
+        term.options.theme = msg.theme;
+        if (msg.theme.background) applyDomBackground(msg.theme.background);
+        doFit();
+      } catch (err) { /* ignore */ }
+    } else if (msg.t === 'fit') {
+      doFit();
+    }
+  });
+}
+
+term.onData((data) => post({ t: 'in', d: data }));
+term.onTitleChange((title) => post({ t: 'title', d: title }));
+
+function doFit() {
+  try { fit.fit(); } catch {}
+  post({ t: 'resize', cols: term.cols, rows: term.rows });
+}
+term.onResize(() => post({ t: 'resize', cols: term.cols, rows: term.rows }));
+window.addEventListener('resize', doFit);
+// WebView2 首帧尺寸常为 0/半高，延迟再 fit 两次
+setTimeout(doFit, 50);
+setTimeout(doFit, 250);
+
+window.termFontSize = term.options.fontSize || 14;
+window.pixSetFontSize = function (size) {
+  window.termFontSize = Math.max(8, Math.min(32, Number(size) || 14));
+  term.options.fontSize = window.termFontSize;
+  doFit();
+};
+window.pixFocus = function () { term.focus(); doFit(); };
+window.pixFit = doFit;
+
+doFit();
+post({ t: 'ready' });
+</script>
+</body>
+</html>

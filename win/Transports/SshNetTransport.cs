@@ -20,6 +20,7 @@ public sealed class SshNetTransport : ITerminalTransport
     private readonly string _user;
     private readonly string _pass;
     private readonly string? _keyPath;
+    private readonly string? _keyPassphrase;
     private readonly ProxyConfig? _proxy;
     private uint _cols;
     private uint _rows;
@@ -39,13 +40,14 @@ public sealed class SshNetTransport : ITerminalTransport
     public event Action<string>? StatusChanged;
     public event Action<bool>? ConnectedChanged;
 
-    public SshNetTransport(string host, int port, string user, string pass, string? keyPath, ProxyConfig? proxy, uint cols, uint rows)
+    public SshNetTransport(string host, int port, string user, string pass, string? keyPath, ProxyConfig? proxy, uint cols, uint rows, string? keyPassphrase = null)
     {
         _host = host;
         _port = port;
         _user = user;
         _pass = pass;
         _keyPath = keyPath;
+        _keyPassphrase = keyPassphrase;
         _proxy = proxy;
         _cols = cols;
         _rows = rows;
@@ -54,7 +56,7 @@ public sealed class SshNetTransport : ITerminalTransport
     public async Task ConnectAsync()
     {
         var connectHost = ResolveFast(_host);
-        var info = TerminalSession.BuildConnectionInfo(connectHost, _port, _user, _pass, _keyPath, _proxy);
+        var info = TerminalSession.BuildConnectionInfo(connectHost, _port, _user, _pass, _keyPath, _proxy, _keyPassphrase);
 
         var ssh = new SshClient(info);
         try

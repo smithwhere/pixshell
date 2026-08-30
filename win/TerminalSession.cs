@@ -152,6 +152,7 @@ public sealed class TerminalSession : IDisposable
     private string _user = "";
     private string _pass = "";
     private string? _keyPath;
+    private string? _keyPassphrase;
     private ProxyConfig? _proxy;
 
     private readonly object _outputBufLock = new();
@@ -201,6 +202,9 @@ public sealed class TerminalSession : IDisposable
 
     /// <summary>本会话连接密码（重连时复用；不做其它用途）。</summary>
     public string? Password => _pass;
+
+    /// <summary>本会话私钥口令（重连时复用；不做其它用途）。</summary>
+    public string? KeyPassphrase => _keyPassphrase;
 
     /// <summary>应用内 Web 终端标签：仅 InitWebSshAsync 置位。
     /// 主机 ConnectionType==400 只表示「连接时走 Web 入口」；
@@ -456,12 +460,12 @@ public sealed class TerminalSession : IDisposable
     }
 
     /// <summary>建立 SSH 交互式 shell。异常向上抛给 MainWindow 显示。</summary>
-    public async Task ConnectAsync(string host, int port, string user, string pass, string? keyPath = null, ProxyConfig? proxy = null)
+    public async Task ConnectAsync(string host, int port, string user, string pass, string? keyPath = null, ProxyConfig? proxy = null, string? keyPassphrase = null)
     {
         Disconnect();
         ClearScreen();
         _isLocal = false;
-        _host = host; _port = port; _user = user; _pass = pass; _keyPath = keyPath; _proxy = proxy;
+        _host = host; _port = port; _user = user; _pass = pass; _keyPath = keyPath; _proxy = proxy; _keyPassphrase = keyPassphrase;
         Log.Info($"SSH 连接中 {user}@{host}:{port}", "ssh");
         SetStatus($"连接 {user}@{host}:{port} …");
 
@@ -472,7 +476,7 @@ public sealed class TerminalSession : IDisposable
             var expandedKey = keyPath != null ? ExpandKeyPath(keyPath) : null;
             transport = expandedKey != null && IsFIDO2Key(expandedKey)
                 ? new OpenSshProcessTransport(host, port, user, expandedKey, _cols, _rows)
-                : new SshNetTransport(host, port, user, pass, keyPath, proxy, _cols, _rows);
+                : new SshNetTransport(host, port, user, pass, keyPath, proxy, _cols, _rows, keyPassphrase);
             _isOpenSSH = transport is OpenSshProcessTransport;
             generation = AttachTransport(transport);
             WireTransportEvents(transport, generation);
@@ -508,6 +512,7 @@ public sealed class TerminalSession : IDisposable
         _user = Environment.UserName;
         _pass = "";
         _keyPath = null;
+        _keyPassphrase = null;
         _proxy = null;
         Log.Info("启动本机 shell …", "local");
         SetStatus("启动本机终端 …");
@@ -832,7 +837,7 @@ public sealed class TerminalSession : IDisposable
             throw new InvalidOperationException(
                 "FIDO2 硬件密钥会话暂不支持 SFTP 面板（SSH.NET 无 sk-* 算法支持）。" +
                 "文件传输请改用密码或普通密钥登录，或直接使用 scp/sftp 命令。");
-        var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy);
+        var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy, _keyPassphrase);
         info.Timeout = TimeSpan.FromSeconds(30);
         var sftp = new SftpClient(info)
         {
@@ -851,7 +856,7 @@ public sealed class TerminalSession : IDisposable
             throw new InvalidOperationException(
                 "FIDO2 硬件密钥会话暂不支持 SCP 面板（SSH.NET 无 sk-* 算法支持）。" +
                 "文件传输请改用密码或普通密钥登录，或直接使用 scp/sftp 命令。");
-        var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy);
+        var info = BuildConnectionInfo(_host, _port, _user, _pass, _keyPath, _proxy, _keyPassphrase);
         info.Timeout = TimeSpan.FromSeconds(30);
         return new ScpClient(info);
     }
@@ -926,7 +931,7 @@ public sealed class TerminalSession : IDisposable
     /// <summary>
     /// 构造认证方式列表：私钥优先，密码兜底。
     /// </summary>
-    internal static ConnectionInfo BuildConnectionInfo(string host, int port, string user, string pass, string? keyPath, ProxyConfig? proxy)
+    internal static ConnectionInfo BuildConnectionInfo(string host, int port, string user, string pass, string? keyPath, ProxyConfig? proxy, string? keyPassphrase = null)
     {
         var methods = new List<Renci.SshNet.AuthenticationMethod>();
         if (!string.IsNullOrWhiteSpace(keyPath))
@@ -940,14 +945,16 @@ public sealed class TerminalSession : IDisposable
                 }
                 else
                 {
-                    var keyFile = new PrivateKeyFile(expanded);
+                    var keyFile = string.IsNullOrEmpty(keyPassphrase)
+                        ? new PrivateKeyFile(expanded)
+                        : new PrivateKeyFile(expanded, keyPassphrase);
                     methods.Add(new PrivateKeyAuthenticationMethod(user, keyFile));
                     Log.Info($"已加载私钥: {expanded}", "ssh");
                 }
             }
             catch (Exception ex)
             {
-                Log.Warn($"私钥加载失败(可能是不支持的格式/已加密)，跳过公钥认证 {expanded}: {ex.Message}", "ssh");
+                Log.Warn($"私钥加载失败(可能是不支持的格式/口令错误)，跳过公钥认证 {expanded}: {ex.Message}", "ssh");
             }
         }
         if (!string.IsNullOrEmpty(pass)) methods.Add(new PasswordAuthenticationMethod(user, pass));

@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "dgSpecHash": "P5M++Btbm+0=",
+  "success": true,
+  "projectFilePath": "/home/runner/work/pixshell/pixshell/win/PixShell.csproj",
+  "expectedPackageFiles": [
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/bouncycastle.cryptography/2.6.2/bouncycastle.cryptography.2.6.2.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.2/microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.extensions.logging.abstractions/8.0.3/microsoft.extensions.logging.abstractions.8.0.3.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.web.webview2/1.0.3065.39/microsoft.web.webview2.1.0.3065.39.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.win32.systemevents/9.0.0/microsoft.win32.systemevents.9.0.0.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/ssh.net/2025.1.0/ssh.net.2025.1.0.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/system.drawing.common/9.0.0/system.drawing.common.9.0.0.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/system.security.cryptography.protecteddata/9.0.0/system.security.cryptography.protecteddata.9.0.0.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.netcore.app.ref/9.0.19/microsoft.netcore.app.ref.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.netcore.app.runtime.win-x64/9.0.19/microsoft.netcore.app.runtime.win-x64.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.windowsdesktop.app.ref/9.0.19/microsoft.windowsdesktop.app.ref.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.windowsdesktop.app.runtime.win-x64/9.0.19/microsoft.windowsdesktop.app.runtime.win-x64.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/9.0.19/microsoft.aspnetcore.app.ref.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.aspnetcore.app.runtime.win-x64/9.0.19/microsoft.aspnetcore.app.runtime.win-x64.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.netcore.app.host.linux-x64/9.0.19/microsoft.netcore.app.host.linux-x64.9.0.19.nupkg.sha512",
+    "/tmp/codeql-scratch-1ae3bfdb782e3439/dbs/csharp/working/packages/microsoft.netcore.app.host.win-x64/9.0.19/microsoft.netcore.app.host.win-x64.9.0.19.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284",
+      "projectPath": "/home/runner/work/pixshell/pixshell/win/PixShell.csproj",
+      "warningLevel": 1,
+      "filePath": "/home/runner/work/pixshell/pixshell/win/PixShell.csproj",
+      "libraryId": "SSH.NET",
+      "targetGraphs": [
+        "net9.0-windows",
+        "net9.0-windows/win-x64"
+      ]
+    }
+  ]
+}
