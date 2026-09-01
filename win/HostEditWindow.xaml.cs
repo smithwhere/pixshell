@@ -119,7 +119,132 @@ public partial class HostEditWindow : Window
             Multiselect = false,
             CheckFileExists = true,
         };
-        if (dlg.ShowDialog(this) == true) KeyPathBox.Text = dlg.FileName;
+        if (dlg.ShowDialog(this) != true) return;
+
+        KeyPathBox.Text = dlg.FileName;
+
+        // 检测私钥是否加密；若是则弹口令输入框，方便用户立即填写。
+        if (IsEncryptedPrivateKey(dlg.FileName))
+        {
+            PromptKeyPassphrase(dlg.FileName);
+        }
+    }
+
+    /// <summary>检测私钥文件是否含口令加密特征：OpenSSH 格式含 "bcrypt" 字符串，或通用 PEM 含 "ENCRYPTED"。</summary>
+    private static bool IsEncryptedPrivateKey(string path)
+    {
+        try
+        {
+            // 只读头部 4KB，足够判断
+            var buf = new char[4096];
+            int read;
+            using (var sr = new System.IO.StreamReader(path, System.Text.Encoding.UTF8))
+                read = sr.ReadBlock(buf, 0, buf.Length);
+            var head = new string(buf, 0, read);
+            // OpenSSH 私钥口令加密：kdfname = bcrypt
+            if (head.IndexOf("bcrypt", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            // 传统 PEM 加密：PROC-TYPE/DEK-Info 或 ENCRYPTED 标记
+            if (head.IndexOf("ENCRYPTED", StringComparison.Ordinal) >= 0) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>弹出私钥口令输入对话框，用户确认后填写到 KeyPassBox。</summary>
+    private void PromptKeyPassphrase(string keyFilePath)
+    {
+        var fileName = System.IO.Path.GetFileName(keyFilePath);
+
+        var win = new Window
+        {
+            Title = "输入私钥口令",
+            Width = 380,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStyle = WindowStyle.ToolWindow,
+            ShowInTaskbar = false,
+            Background = Background,
+            Foreground = Foreground,
+        };
+
+        var grid = new System.Windows.Controls.Grid { Margin = new Thickness(18, 16, 18, 12) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var label = new System.Windows.Controls.TextBlock
+        {
+            Text = $"私钥文件 {fileName} 已加密，请输入口令（Key Passphrase）：",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        System.Windows.Controls.Grid.SetRow(label, 0);
+        grid.Children.Add(label);
+
+        var hint = new System.Windows.Controls.TextBlock
+        {
+            Text = "私钥口令是保护密钥文件本身的密码，与服务器登录密码不同。留空并直接点确认则跳过。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (System.Windows.Media.Brush)FindResource("BrushMuted"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        System.Windows.Controls.Grid.SetRow(hint, 1);
+        grid.Children.Add(hint);
+
+        var pb = new System.Windows.Controls.PasswordBox { Margin = new Thickness(0, 0, 0, 14) };
+        System.Windows.Controls.Grid.SetRow(pb, 2);
+        grid.Children.Add(pb);
+
+        var btnPanel = new System.Windows.Controls.StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        System.Windows.Controls.Grid.SetRow(btnPanel, 3);
+
+        bool confirmed = false;
+        var okBtn = new System.Windows.Controls.Button
+        {
+            Content = "确认",
+            IsDefault = true,
+            MinWidth = 72,
+            Padding = new Thickness(14, 4, 14, 4),
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        okBtn.Click += (_, _) => { confirmed = true; win.Close(); };
+
+        var cancelBtn = new System.Windows.Controls.Button
+        {
+            Content = "跳过",
+            IsCancel = true,
+            MinWidth = 72,
+            Padding = new Thickness(14, 4, 14, 4),
+        };
+        cancelBtn.Click += (_, _) => win.Close();
+
+        btnPanel.Children.Add(okBtn);
+        btnPanel.Children.Add(cancelBtn);
+        grid.Children.Add(btnPanel);
+
+        win.Content = grid;
+
+        try
+        {
+            UI.WindowInterop.ApplyBackdrop(win, ThemeManager.IsDark);
+        }
+        catch { }
+
+        win.ShowDialog();
+
+        if (confirmed && pb.Password.Length > 0)
+        {
+            KeyPassBox.Password = pb.Password;
+            pb.Clear();
+        }
     }
 
     /// <summary>切到 RDP 且端口还是 SSH 默认 22 → 顺手改成 3389；
