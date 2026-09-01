@@ -696,18 +696,26 @@ public partial class MainWindow : Window
         {
             Log.Error($"会话打开失败 {host.Username}@{host.Host}: {ex.Message}", "session");
             var authFail = IsAuthFailure(ex);
+            var keyLoadFail = IsKeyLoadFailure(ex);
             // 用户反馈：Win11 目标机默认防火墙拦截 22 入站 → 报"积极拒绝/超时"，
             // 用户误以为是密钥/证书问题。Socket 层失败时给出放行指引。
-            var fw = !authFail && IsFirewallLikely(ex);
+            var fw = !authFail && !keyLoadFail && IsFirewallLikely(ex);
             // 任何连接失败都保留 DPAPI 密码；认证失败只提示/重试，删除仅由用户删除主机时触发。
-            ConnectAnim.Fail(authFail ? "认证失败" : fw ? $"连接失败（疑似防火墙拦截）\n{ex.Message}" : $"连接失败\n{ex.Message}", autoHide: authFail);
-            SetStatus((authFail ? "认证失败: " : "连接失败: ") + ex.Message
+            ConnectAnim.Fail(
+                keyLoadFail ? "私钥加载失败" :
+                authFail ? "认证失败" :
+                fw ? $"连接失败（疑似防火墙拦截）\n{ex.Message}" :
+                $"连接失败\n{ex.Message}",
+                autoHide: authFail || keyLoadFail);
+            SetStatus((keyLoadFail ? "私钥加载失败: " : authFail ? "认证失败: " : "连接失败: ") + ex.Message
                 + (fw ? "（若目标是 Windows 主机，可能被防火墙拦截：管理员 PowerShell 执行 New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22）" : ""));
             if (fw)
                 Log.Info($"防火墙提示：{host.Host}:{host.Port} Socket 层失败，若为 Windows 主机请放行 22 端口入站", "session");
+            // 私钥加载失败（口令错误/未输入）→ 弹口令重试框
+            if (keyLoadFail && !string.IsNullOrEmpty(host.KeyPath))
+                PromptRetryKeyPassphrase(host, item, keyPassphrase);
             // 认证失败且非私钥路径：当场重弹密码框（对齐 mac promptRetryPassword）。
-            // 私钥登录失败不弹密码框——那是 key 的问题。
-            if (authFail && string.IsNullOrEmpty(host.KeyPath)) PromptRetryPassword(host, item);
+            else if (authFail && string.IsNullOrEmpty(host.KeyPath)) PromptRetryPassword(host, item);
         }
     }
 
@@ -752,6 +760,151 @@ public partial class MainWindow : Window
             if (msg.Contains("认证失败", StringComparison.Ordinal) || msg.Contains("认证被拒", StringComparison.Ordinal)) return true;
         }
         return false;
+    }
+
+    /// <summary>检测异常是否由私钥加载失败引起（口令错误 / 格式不支持）。</summary>
+    private static bool IsKeyLoadFailure(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            var msg = e.Message ?? "";
+            if (msg.Contains("私钥加载失败", StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>私钥加载失败后弹出口令重试框，用户输入正确口令后在当前标签上重连。</summary>
+    private void PromptRetryKeyPassphrase(HostEntry host, TabItem item, string? currentPassphrase)
+    {
+        if (_retryPrompting) return;
+        _retryPrompting = true;
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            var session = item.Tag as TerminalSession;
+            try
+            {
+                if (session == null || !IsSessionTabAlive(item, session)) return;
+
+                // 弹出口令输入窗
+                var fileName = System.IO.Path.GetFileName(host.KeyPath);
+                var win = new Window
+                {
+                    Title = "私钥口令错误",
+                    Width = 380,
+                    SizeToContent = SizeToContent.Height,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    ResizeMode = ResizeMode.NoResize,
+                    WindowStyle = WindowStyle.ToolWindow,
+                    ShowInTaskbar = false,
+                    Background = Background,
+                    Foreground = Foreground,
+                };
+                var grid = new System.Windows.Controls.Grid { Margin = new Thickness(18, 16, 18, 12) };
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var label = new System.Windows.Controls.TextBlock
+                {
+                    Text = $"私钥文件 {fileName} 加载失败，请重新输入口令（Key Passphrase）：",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                System.Windows.Controls.Grid.SetRow(label, 0);
+                grid.Children.Add(label);
+
+                var hint = new System.Windows.Controls.TextBlock
+                {
+                    Text = "口令将加密保存；勾选「记住」后下次无需重新输入。",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11,
+                    Margin = new Thickness(0, 0, 0, 10),
+                };
+                try { hint.Foreground = (System.Windows.Media.Brush)FindResource("BrushMuted"); } catch { }
+                System.Windows.Controls.Grid.SetRow(hint, 1);
+                grid.Children.Add(hint);
+
+                var inputRow = new System.Windows.Controls.StackPanel
+                {
+                    Orientation = System.Windows.Controls.Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 0, 14),
+                };
+                var pb = new System.Windows.Controls.PasswordBox { Width = 220, Margin = new Thickness(0, 0, 10, 0) };
+                var rememberChk = new System.Windows.Controls.CheckBox
+                {
+                    Content = "记住",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsChecked = true,
+                };
+                inputRow.Children.Add(pb);
+                inputRow.Children.Add(rememberChk);
+                System.Windows.Controls.Grid.SetRow(inputRow, 2);
+                grid.Children.Add(inputRow);
+
+                var btnPanel = new System.Windows.Controls.StackPanel
+                {
+                    Orientation = System.Windows.Controls.Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                };
+                bool confirmed = false;
+                var okBtn = new System.Windows.Controls.Button
+                {
+                    Content = "重试",
+                    IsDefault = true,
+                    MinWidth = 72,
+                    Padding = new Thickness(14, 4, 14, 4),
+                    Margin = new Thickness(0, 0, 8, 0),
+                };
+                okBtn.Click += (_, _) => { confirmed = true; win.Close(); };
+                var cancelBtn = new System.Windows.Controls.Button
+                {
+                    Content = "取消",
+                    IsCancel = true,
+                    MinWidth = 72,
+                    Padding = new Thickness(14, 4, 14, 4),
+                };
+                cancelBtn.Click += (_, _) => win.Close();
+                btnPanel.Children.Add(okBtn);
+                btnPanel.Children.Add(cancelBtn);
+                System.Windows.Controls.Grid.SetRow(btnPanel, 3);
+                grid.Children.Add(btnPanel);
+                win.Content = grid;
+                try { UI.WindowInterop.ApplyBackdrop(win, ThemeManager.IsDark); } catch { }
+                win.ShowDialog();
+
+                if (!confirmed || pb.Password.Length == 0 || !IsSessionTabAlive(item, session)) return;
+                var newPassphrase = pb.Password;
+                pb.Clear();
+
+                if (rememberChk.IsChecked == true)
+                    CredentialStore.SetKeyPassphrase(host.Id, newPassphrase);
+
+                if (!IsSessionTabAlive(item, session)) return;
+                var proxy = ProxyStore.Find(host.ProxyId);
+                var pass = session.Password ?? CredentialStore.GetPassword(host.Id) ?? "";
+                await session.ConnectAsync(host.Host, host.Port, host.Username, pass, host.KeyPath, proxy, newPassphrase);
+                if (IsActiveSession(session))
+                {
+                    LeaveQuickConnect();
+                    SyncDockSession();
+                    Monitor.SetConnected(true, host.Host);
+                    ConnectAnim.Succeed();
+                    RefreshConnState();
+                }
+            }
+            catch (Exception ex2)
+            {
+                Log.Error($"私钥口令重试失败 {host.Username}@{host.Host}: {ex2.Message}", "session");
+                ConnectAnim.Fail(IsKeyLoadFailure(ex2) ? "私钥口令仍然错误" : $"重试失败\n{ex2.Message}");
+                SetStatus("连接失败: " + ex2.Message);
+            }
+            finally
+            {
+                _retryPrompting = false;
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>

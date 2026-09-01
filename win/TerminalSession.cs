@@ -934,6 +934,7 @@ public sealed class TerminalSession : IDisposable
     internal static ConnectionInfo BuildConnectionInfo(string host, int port, string user, string pass, string? keyPath, ProxyConfig? proxy, string? keyPassphrase = null)
     {
         var methods = new List<Renci.SshNet.AuthenticationMethod>();
+        Exception? keyLoadEx = null;
         if (!string.IsNullOrWhiteSpace(keyPath))
         {
             var expanded = ExpandKeyPath(keyPath);
@@ -954,7 +955,8 @@ public sealed class TerminalSession : IDisposable
             }
             catch (Exception ex)
             {
-                Log.Warn($"私钥加载失败(可能是不支持的格式/口令错误)，跳过公钥认证 {expanded}: {ex.Message}", "ssh");
+                keyLoadEx = ex;
+                Log.Warn($"私钥加载失败(可能是口令错误或不支持的格式): {expanded}: {ex.Message}", "ssh");
             }
         }
         if (!string.IsNullOrEmpty(pass)) methods.Add(new PasswordAuthenticationMethod(user, pass));
@@ -974,7 +976,20 @@ public sealed class TerminalSession : IDisposable
             methods.Add(kbd);
         }
 
-        if (methods.Count == 0) methods.Add(new PasswordAuthenticationMethod(user, pass ?? ""));
+        // 若因私钥加载失败导致没有任何认证方式可用，立即给出明确错误，
+        // 避免后续 SSH 握手报出令人困惑的 "No suitable authentication method"。
+        if (methods.Count == 0)
+        {
+            if (keyLoadEx != null)
+            {
+                // 私钥文件设置了但加载失败（最常见：口令错误或未输入口令）
+                throw new InvalidOperationException(
+                    "私钥加载失败，请检查私钥口令是否正确。\n" +
+                    "在「编辑主机」→「私钥口令」栏中填写正确的口令后重试。\n" +
+                    $"详细原因：{keyLoadEx.Message}", keyLoadEx);
+            }
+            methods.Add(new PasswordAuthenticationMethod(user, pass ?? ""));
+        }
 
         if (proxy != null && proxy.Type == ProxyType.SshJump)
         {
